@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -60,24 +61,52 @@ type query struct {
 	Query string
 }
 
+var paramRe = regexp.MustCompile("(\\?)")
+
+type valuer func(index int) driver.Value
+
+func replacePlaceholders(q string, v valuer) string {
+	var index int
+	return paramRe.ReplaceAllStringFunc(q, func(s string) string {
+		val := v(index)
+		index++
+		if val != nil {
+			var res string
+			switch v := val.(type) {
+			case string:
+				res = fmt.Sprintf(` '%s' `, v)
+			default:
+				res = fmt.Sprintf(" %v ", val)
+			}
+			if strings.HasSuffix(s, ",") {
+				res += ","
+			}
+			return res
+		}
+		return s
+	})
+}
+
 func (q query) buildNamed(args []driver.NamedValue) (io.Reader, error) {
 	if len(args) > 0 {
-		var s strings.Builder
-		s.WriteString(q.Query)
-		q.Query = s.String()
-	} else {
-		// FIXME support parameters
+		q.Query = replacePlaceholders(q.Query, func(index int) driver.Value {
+			if index < len(args) {
+				return args[index].Value
+			}
+			return nil
+		}) + " " // dremio has an issue where you need to have a space at end of your query (from forums)
 	}
 	return strings.NewReader(q.Query), nil
 }
 
 func (q query) build(args []driver.Value) (io.Reader, error) {
 	if len(args) > 0 {
-		var s strings.Builder
-		s.WriteString(q.Query)
-		q.Query = s.String()
-	} else {
-		// FIXME support parameters
+		q.Query = replacePlaceholders(q.Query, func(index int) driver.Value {
+			if index < len(args) {
+				return args[index]
+			}
+			return nil
+		}) + " " // dremio has an issue where you need to have a space at end of your query (from forums)
 	}
 	return strings.NewReader(q.Query), nil
 }
