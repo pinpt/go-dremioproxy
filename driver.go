@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -127,7 +128,16 @@ func (q query) send(c *connection, r io.Reader) (driver.Rows, error) {
 	}
 	var body io.ReadCloser = resp.Body
 	if resp.Header.Get("Content-Encoding") == "gzip" {
-		body, _ = gzip.NewReader(body)
+		body, err = gzip.NewReader(body)
+		if err != nil {
+			body.Close()
+			return nil, err
+		}
+	}
+	if !strings.Contains(resp.Header.Get("Content-Type"), "json") {
+		buf, _ := ioutil.ReadAll(body)
+		body.Close()
+		return nil, fmt.Errorf("error sending request to %v. returned invalid JSON: %v", req.URL, string(buf))
 	}
 	if resp.StatusCode != http.StatusOK {
 		switch resp.StatusCode {
@@ -136,15 +146,15 @@ func (q query) send(c *connection, r io.Reader) (driver.Rows, error) {
 		case http.StatusNotFound:
 			return nil, sql.ErrConnDone
 		}
-		var err errorResult
-		if err := json.NewDecoder(body).Decode(&err); err != nil {
+		var errresult errorResult
+		if err := json.NewDecoder(body).Decode(&errresult); err != nil {
 			return nil, fmt.Errorf("query error. status code: %v", resp.StatusCode)
 		}
 		body.Close()
-		return nil, &err
+		return nil, &errresult
 	}
 
-	return newResult(body)
+	return newResult(resp.Header.Get("columns"), body)
 }
 
 func (q query) query(ctx context.Context, c *connection, args []driver.Value) (driver.Rows, error) {

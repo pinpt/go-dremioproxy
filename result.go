@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"io"
+	"strings"
 )
 
 type result struct {
@@ -15,25 +16,22 @@ type result struct {
 	data    map[string]interface{}
 }
 
-func newResult(r io.ReadCloser) (driver.Rows, error) {
+func newResult(columnheader string, r io.ReadCloser) (driver.Rows, error) {
 	theresult := &result{
 		reader:  r,
 		scanner: bufio.NewReader(r),
+		columns: strings.Split(columnheader, ","),
 	}
-	if err := theresult.readNext(); err != nil {
-		return nil, err
-	}
-	colnames := make([]string, 0)
-	for k := range theresult.data {
-		colnames = append(colnames, k)
-	}
-	theresult.columns = colnames
 	return theresult, nil
 }
 
 func (r *result) readNext() error {
 	buf, err := r.scanner.ReadBytes('\n')
+	// fmt.Println(">>", string(buf), "err", err, "eof", err == io.EOF)
 	if err != nil {
+		if err == io.ErrUnexpectedEOF || err == io.ErrClosedPipe {
+			return io.EOF
+		}
 		return err
 	}
 	data := make(map[string]interface{})
