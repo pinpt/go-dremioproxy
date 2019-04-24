@@ -3,6 +3,7 @@ package dremioproxy
 import (
 	"compress/gzip"
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
@@ -30,10 +31,11 @@ type db struct {
 var _ driver.Driver = (*db)(nil)
 
 type connection struct {
-	proto    string
-	hostname string
-	port     int
-	apikey   string
+	proto     string
+	hostname  string
+	port      int
+	apikey    string
+	transport http.RoundTripper
 }
 
 // make sure our connection implements the full driver.Conn interfaces
@@ -122,7 +124,7 @@ func (q query) send(c *connection, r io.Reader) (driver.Rows, error) {
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Accept-Encoding", "gzip")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.transport.RoundTrip(req)
 	if err != nil {
 		return nil, err
 	}
@@ -213,11 +215,22 @@ func (d *db) Open(name string) (driver.Conn, error) {
 		apikey = u.User.Username()
 	}
 
+	transport := http.DefaultTransport
+
+	if u.Query().Get("skip-verify") == "true" {
+		transport = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
+	}
+
 	conn := &connection{
-		hostname: u.Hostname(),
-		port:     port,
-		proto:    u.Scheme,
-		apikey:   apikey,
+		hostname:  u.Hostname(),
+		port:      port,
+		proto:     u.Scheme,
+		apikey:    apikey,
+		transport: transport,
 	}
 	return conn, nil
 }

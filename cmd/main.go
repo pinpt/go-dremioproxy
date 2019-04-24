@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	conn, err := sql.Open("dremioproxy", "http://localhost:9080")
+	conn, err := sql.Open("dremioproxy", "http://localhost:9080?skip-verify=true")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func main() {
 	var count int
 	started := time.Now()
 	for rows.Next() {
-		var val sql.NullFloat64
+		var val sql.NullString
 		if err := rows.Scan(&val); err != nil {
 			log.Fatal(err)
 		}
