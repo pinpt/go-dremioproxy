@@ -91,7 +91,7 @@ func replacePlaceholders(q string, v valuer) string {
 	})
 }
 
-func (q query) buildNamed(args []driver.NamedValue) (io.Reader, error) {
+func (q *query) buildNamed(args []driver.NamedValue) (io.Reader, error) {
 	if len(args) > 0 {
 		q.Query = replacePlaceholders(q.Query, func(index int) driver.Value {
 			if index < len(args) {
@@ -100,10 +100,11 @@ func (q query) buildNamed(args []driver.NamedValue) (io.Reader, error) {
 			return nil
 		}) + " " // dremio has an issue where you need to have a space at end of your query (from forums)
 	}
+	// panic(q.Query)
 	return strings.NewReader(q.Query), nil
 }
 
-func (q query) build(args []driver.Value) (io.Reader, error) {
+func (q *query) build(args []driver.Value) (io.Reader, error) {
 	if len(args) > 0 {
 		q.Query = replacePlaceholders(q.Query, func(index int) driver.Value {
 			if index < len(args) {
@@ -115,7 +116,7 @@ func (q query) build(args []driver.Value) (io.Reader, error) {
 	return strings.NewReader(q.Query), nil
 }
 
-func (q query) send(c *connection, r io.Reader) (driver.Rows, error) {
+func (q *query) send(c *connection, r io.Reader) (driver.Rows, error) {
 	started := time.Now()
 	req, err := http.NewRequest(http.MethodPost, c.getQueryURL(), r)
 	if err != nil {
@@ -182,7 +183,7 @@ func (q query) send(c *connection, r io.Reader) (driver.Rows, error) {
 	return newResult(resp.Header.Get("columns"), body)
 }
 
-func (q query) query(ctx context.Context, c *connection, args []driver.Value) (driver.Rows, error) {
+func (q *query) query(ctx context.Context, c *connection, args []driver.Value) (driver.Rows, error) {
 	r, err := q.build(args)
 	if err != nil {
 		return nil, err
@@ -190,7 +191,7 @@ func (q query) query(ctx context.Context, c *connection, args []driver.Value) (d
 	return q.send(c, r)
 }
 
-func (q query) queryNamed(ctx context.Context, c *connection, args []driver.NamedValue) (driver.Rows, error) {
+func (q *query) queryNamed(ctx context.Context, c *connection, args []driver.NamedValue) (driver.Rows, error) {
 	r, err := q.buildNamed(args)
 	if err != nil {
 		return nil, err
