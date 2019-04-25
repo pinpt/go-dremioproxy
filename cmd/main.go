@@ -7,8 +7,15 @@ import (
 	"log"
 	"time"
 
-	_ "github.com/pinpt/go-dremioproxy"
+	p "github.com/pinpt/go-dremioproxy"
 )
+
+type debug struct {
+}
+
+func (d *debug) QueryFinished(query string, duration time.Duration, err error) {
+	fmt.Printf("[DEBUG] query: %s, took %v, err: %v\n", query, duration, err)
+}
 
 func main() {
 	conn, err := sql.Open("dremioproxy", "http://localhost:9080?skip-verify=true")
@@ -16,6 +23,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer conn.Close()
+	p.SetDebug(&debug{})
 	rows, err := conn.QueryContext(context.Background(), `SELECT NOW()`)
 	if err != nil {
 		log.Fatal(err)
@@ -33,9 +41,7 @@ func main() {
 		if err := rows.Scan(&val); err != nil {
 			log.Fatal(err)
 		}
-		if val.Valid {
-			fmt.Println("val:", val)
-		}
+		fmt.Println("val:", val)
 		count++
 	}
 	if err := rows.Err(); err != nil {

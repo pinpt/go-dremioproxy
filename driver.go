@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ErrTransactionNotSupported is returned if transactions are attempted to be used
@@ -115,8 +116,12 @@ func (q query) build(args []driver.Value) (io.Reader, error) {
 }
 
 func (q query) send(c *connection, r io.Reader) (driver.Rows, error) {
+	started := time.Now()
 	req, err := http.NewRequest(http.MethodPost, c.getQueryURL(), r)
 	if err != nil {
+		if debugger != nil {
+			debugger.QueryFinished(q.Query, time.Since(started), err)
+		}
 		return nil, err
 	}
 	if c.apikey != "" {
@@ -126,6 +131,9 @@ func (q query) send(c *connection, r io.Reader) (driver.Rows, error) {
 	req.Header.Set("Accept-Encoding", "gzip")
 	resp, err := c.transport.RoundTrip(req)
 	if err != nil {
+		if debugger != nil {
+			debugger.QueryFinished(q.Query, time.Since(started), err)
+		}
 		return nil, err
 	}
 	var body io.ReadCloser = resp.Body
@@ -133,13 +141,20 @@ func (q query) send(c *connection, r io.Reader) (driver.Rows, error) {
 		body, err = gzip.NewReader(body)
 		if err != nil {
 			body.Close()
+			if debugger != nil {
+				debugger.QueryFinished(q.Query, time.Since(started), err)
+			}
 			return nil, err
 		}
 	}
 	if !strings.Contains(resp.Header.Get("Content-Type"), "json") {
 		buf, _ := ioutil.ReadAll(body)
 		body.Close()
-		return nil, fmt.Errorf("error sending request to %v. returned invalid JSON: %v", req.URL, string(buf))
+		err := fmt.Errorf("error sending request to %v. returned invalid JSON: %v", req.URL, string(buf))
+		if debugger != nil {
+			debugger.QueryFinished(q.Query, time.Since(started), err)
+		}
+		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
 		switch resp.StatusCode {
@@ -150,12 +165,20 @@ func (q query) send(c *connection, r io.Reader) (driver.Rows, error) {
 		}
 		var errresult errorResult
 		if err := json.NewDecoder(body).Decode(&errresult); err != nil {
+			if debugger != nil {
+				debugger.QueryFinished(q.Query, time.Since(started), err)
+			}
 			return nil, fmt.Errorf("query error. status code: %v", resp.StatusCode)
 		}
 		body.Close()
+		if debugger != nil {
+			debugger.QueryFinished(q.Query, time.Since(started), &errresult)
+		}
 		return nil, &errresult
 	}
-
+	if debugger != nil {
+		debugger.QueryFinished(q.Query, time.Since(started), nil)
+	}
 	return newResult(resp.Header.Get("columns"), body)
 }
 
@@ -413,18 +436,6 @@ func (s *statement) Exec(args []driver.Value) (driver.Result, error) {
 // ExecContext must honor the context timeout and return when it is canceled.
 func (s *statement) ExecContext(ctx context.Context, nargs []driver.NamedValue) (driver.Result, error) {
 	return nil, ErrNonQueryNotSupported
-}
-
-// namedValueToValue is a helper function copied from the database/sql package
-func namedValueToValue(named []driver.NamedValue) ([]driver.Value, error) {
-	dargs := make([]driver.Value, len(named))
-	for n, param := range named {
-		if len(param.Name) > 0 {
-			return nil, errors.New("sql: driver does not support the use of Named Parameters")
-		}
-		dargs[n] = param.Value
-	}
-	return dargs, nil
 }
 
 // DriverName is the public name of the driver
